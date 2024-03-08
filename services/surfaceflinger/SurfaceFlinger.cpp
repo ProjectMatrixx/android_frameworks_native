@@ -3303,7 +3303,8 @@ sp<DisplayDevice> SurfaceFlinger::setupNewDisplayDeviceInternal(
                  .frameRateMultipleThreshold =
                          base::GetIntProperty("debug.sf.frame_rate_multiple_threshold", 60),
                  .idleTimerTimeout = idleTimerTimeoutMs,
-                 .kernelIdleTimerController = kernelIdleTimerController};
+                 .kernelIdleTimerController = kernelIdleTimerController,
+                 .touchBoostDisabled = sysprop::set_touch_timer_ms(0) == 0};
 
         creationArgs.refreshRateSelector =
                 mPhysicalDisplays.get(physical->id)
@@ -5693,7 +5694,8 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args, bool asProto) {
         // Otherwise, SortedVector may have shared ownership during concurrent
         // traversals, which can result in use-after-frees.
         std::string compositionLayers;
-        mScheduler
+        if (flag.size() == 0 && !asProto) {
+            mScheduler
                 ->schedule([&] {
                     StringAppendF(&compositionLayers, "Composition layers\n");
                     mDrawingState.traverseInZOrder([&](Layer* layer) {
@@ -5707,6 +5709,7 @@ status_t SurfaceFlinger::doDump(int fd, const DumpArgs& args, bool asProto) {
                     });
                 })
                 .get();
+        }
 
         bool dumpLayers = true;
         {
@@ -7754,7 +7757,13 @@ status_t SurfaceFlinger::applyRefreshRateSelectorPolicy(
         return INVALID_OPERATION;
     }
 
-    setDesiredActiveMode({std::move(preferredMode), .emitEvent = true}, force);
+    setDesiredActiveMode({preferredMode, .emitEvent = true}, force);
+
+    // Update the frameRateOverride list as the display render rate might have changed
+    if (mScheduler->updateFrameRateOverrides(/*consideredSignals*/ {}, preferredMode.fps)) {
+        triggerOnFrameRateOverridesChanged();
+    }
+
     return NO_ERROR;
 }
 
